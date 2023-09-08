@@ -7,9 +7,12 @@ def helpMessage() {
     nextflow run main.nf --bams sample.bam [Options]
     
     Inputs Options:
-    --input         Input file
-
-    Resource Options:
+    --bam        Input file
+    --bam_index     Input BAM Index file
+    --fasta         Input genome ref
+    --index         Input genome Index file
+   
+Resource Options:
     --max_cpus      Maximum number of CPUs (int)
                     (default: $params.max_cpus)  
     --max_memory    Maximum memory (memory unit)
@@ -28,34 +31,51 @@ if (params.help) {
 
 // Define channels from repository files
 projectDir = workflow.projectDir
-ch_run_sh_script = Channel.fromPath("${projectDir}/bin/run.sh")
+params.outdir = "./results"
 
 // Define Channels from input
 Channel
-    .fromPath(params.input)
-    .ifEmpty { exit 1, "Cannot find input file : ${params.input}" }
-    .splitCsv(skip:1)
-    .map {sample_name, file_path -> [ sample_name, file_path ] }
+    .fromPath(params.bam)
+    .ifEmpty { exit 1, "Cannot find input BAM file : ${params.bam}" }
     .set { ch_input }
 
-// Define Process
-process step_1 {
-    tag "$sample_name"
-    label 'low_memory'
-    publishDir "${params.outdir}", mode: 'copy'
-
-    input:
-    set val(sample_name), file(input_file) from ch_input
-    file(run_sh_script) from ch_run_sh_script
+Channel
+    .fromPath(params.bam_index)
+    .ifEmpty { exit 1, "Cannot find input BAM file : ${params.bam}" }
+    .set { ch_bindex }
     
-    output:
-    file "input_file_head.txt" into ch_out
+Channel
+    .fromPath(params.fasta)
+    .ifEmpty { exit 1, "Cannot find input reference file : ${params.fasta}" }
+    .set { ch_ref }
+    
+Channel
+    .fromPath(params.index)
+    .ifEmpty { exit 1, "Cannot find input reference file : ${params.index}" }
+    .set { ch_ind}
 
+// Define Process
+process gatk {
+    tag "$bam_file"
+    label 'gatk'
+    publishDir "${params.outdir}/gatk", mode: 'copy'
+ 
+    input:
+    file(bam_file) from ch_input
+    file(bam_index) from ch_bindex
+    file(fasta) from ch_ref
+    file(index) from ch_ind
+      
+    output:
+    file "output.vcf" into ch_out
+    
     script:
-    """
-    run.sh
-    head $input_file > input_file_head.txt
-    """
+    """    
+    
+    gatk --java-options "-Xmx4g" HaplotypeCaller \
+     -R ${fasta} -I $bam_file -O output.vcf
+     
+     """
   }
 
 ch_report_dir = Channel.value(file("${projectDir}/bin/report"))
